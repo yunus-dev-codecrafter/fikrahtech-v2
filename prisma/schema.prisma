@@ -1,0 +1,194 @@
+// FikrahTech v2 — Prisma schema (PostgreSQL, Supabase-hosted)
+// Mirrors the v1 domain (multi-tenant school SaaS) with clean relations.
+// Run: npm run db:push (prototype) or npm run db:migrate (migrations)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (Supabase :6543)
+  directUrl = env("DIRECT_URL") // direct (:5432) for migrations
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  PROPRIETOR
+  STAFF
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String
+  passwordHash      String
+  role              Role     @default(PROPRIETOR)
+  needsPasswordReset Boolean @default(false)
+  schoolId          String?
+  school            School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([role])
+}
+
+model School {
+  id              String   @id @default(cuid())
+  name            String
+  proprietorEmail String?
+  phone           String?
+  address         String?
+  city            String?
+  state           String?
+  country         String?
+  currentSession  String?
+  currentTerm     String?
+  isBlocked       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users         User[]
+  sections      Section[]
+  staff         Staff[]
+  classes       Class[]
+  students      Student[]
+  subscriptions SchoolSubscription[]
+  payments      Payment[]
+
+  @@index([isBlocked])
+  @@index([name])
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  name      String
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  staff     Staff[]
+  classes   Class[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+model Staff {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  role      String   @default("teacher")
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  sectionId String?
+  section   Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([sectionId])
+}
+
+model Class {
+  id        String   @id @default(cuid())
+  name      String
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  sectionId String?
+  section   Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  students  Student[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([sectionId])
+}
+
+model Student {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  gender    String?
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId   String?
+  class     Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+model AcademicSession {
+  id        String   @id @default(cuid())
+  name      String // e.g. "2025/2026"
+  isCurrent Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  terms     AcademicTerm[]
+}
+
+model AcademicTerm {
+  id        String          @id @default(cuid())
+  name      String // e.g. "First Term"
+  sessionId String
+  session   AcademicSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  isCurrent Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([sessionId])
+}
+
+model SubscriptionPlan {
+  id             String               @id @default(cuid())
+  name           String
+  price          Decimal              @db.Decimal(10, 2)
+  durationMonths Int
+  maxStudents    Int
+  features       Json                 @default("[]")
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  subscriptions  SchoolSubscription[]
+}
+
+model SchoolSubscription {
+  id        String             @id @default(cuid())
+  schoolId  String
+  school    School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+  startDate DateTime           @db.Date
+  expiryDate DateTime          @db.Date
+  status    SubscriptionStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([schoolId, status])
+  @@index([expiryDate])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  amount    Decimal  @db.Decimal(10, 2)
+  method    String   @default("transfer")
+  reference String?
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([createdAt])
+}
